@@ -1,18 +1,59 @@
 import numpy as np
-from pandas_datareader import data as pdr
-import datetime as dt
+import pandas as pd
+import scipy as sc
 import yfinance as yf
 
 class pyPortfolioOptimization:
+
     called_getData = False
-    def __init__(self, stocks, start, end):
+
+    def __init__(self, stocks, weights, start, end):
         yf.pdr_override()
         self.stocks = stocks
         self.start = start
         self.end = end
+        self.weights = weights
 
+    
+    # Download Risk Free Rate
+    '''
+    Download 13 week us treasury bills rates
+    and convert to daily rate.
+    '''
+    def getRiskFreeRate(self):
+
+        def deannualize(annual_rate, periods=365):
+            return (1 + annual_rate) ** (1/periods) - 1
+
+        annualized = yf.download('^IRX', start=self.start, end=self.end)['Close']
+
+        daily = annualized.apply(deannualize)
+        return daily.mean()
+
+
+    # Check if getData
+    '''
+    Check if getData has already been executed or not.
+    '''
+    def check_getData(self):
+        if pyPortfolioOptimization.called_getData == True:
+            pass
+        else:
+            meanReturns, covMatrix = self.getData()
+            self.meanReturns = meanReturns
+            self.covMatrix = covMatrix
+
+
+    # Importing data
+    '''
+    Get data from yfinance and calculate
+    mean returns and covariance matrix.
+    It stores returned data.
+    '''
     def getData(self):
-        stockData = pdr.get_data_yahoo(self.stocks, start=self.start, end=self.end)
+        stockData = yf.download(self.stocks, start=self.start, end=self.end)
+        self.stockData = stockData
+        self.len_period = len(stockData)
         stockData = stockData['Close']
 
         returns = stockData.pct_change()
@@ -26,16 +67,223 @@ class pyPortfolioOptimization:
 
         return meanReturns, covMatrix
 
-    def portfolioPerformance(self, weights):
-        if pyPortfolioOptimization.called_getData == True:
-            pass
-        else:
-            meanReturns, covMatrix = self.getData()
-            self.meanReturns = meanReturns
-            self.covMatrix = covMatrix
+
+    # Plot data
+    '''
+    Plot downloaded data.
+    '''
+    def plotData(self):
+        self.check_getData()
+        return self.stockData['Close'].plot()
+
+
+    # Maximize for the Sharpe Ratio
+    '''
+    Highest ratio for minimum volatility.
+    '''
+    def maxSharpeRatio(self, riskFreeRate = 0, constraintSet=(0,1)):
+
+        '''
+        Set 13 week treasury bill rate as free-risk ratio,
+        from the same dates as the selected stocks.
+        '''
+        if riskFreeRate == '13-week':
+            riskFreeRate = self.getRiskFreeRate()
+
+        def objFunc(weights, meanReturns, covMatrix, riskFreeRate):
+            '''
+            Objective function: Negative Sharpe ratio
+            '''
+            funcDenomr = np.sqrt(np.matmul(np.matmul(weights, covMatrix), weights.T) )
+            funcNumer = np.matmul(np.array(meanReturns),weights.T)-riskFreeRate
+            return -(funcNumer / funcDenomr)
         
-        returns = np.sum(self.meanReturns*weights)*252
-        std = np.sqrt(
-                np.dot(weights.T,np.dot(self.covMatrix, weights))
-            )*np.sqrt(252)
-        return returns, std
+        def constraintEq(weights):
+            '''
+            Constraint equations
+            '''
+            A=np.ones(weights.shape)
+            b=1
+            return np.matmul(A,weights.T)-b 
+        
+        self.check_getData()
+        '''
+        We want to minimize the negative Sharpe ratio, instead of maximazing
+        the positive Sharpe ratio.
+        Minimize the negative SR, by altering the weights of the portfolio.
+        '''
+        numAssets = len(self.meanReturns)
+        args = (self.meanReturns, self.covMatrix, riskFreeRate)
+        constraints = ({'type': 'eq', 'fun': constraintEq})
+        bound = constraintSet
+        bounds = tuple(bound for asset in range(numAssets))
+        result = sc.optimize.minimize(objFunc, [1./numAssets]*numAssets, args=args,
+                            method='SLSQP', bounds=bounds, constraints=constraints)
+        result.x = [float('{:.6f}'.format(val)) for val in result.x]
+        result.jac = [float('{:.6f}'.format(val)) for val in result.jac]
+        return result
+    
+
+    # Minimium for the Portfolio Variance
+    '''
+    Minimize the portfolio variance by altering the 
+    weights/allocation of assets in the portfolio.
+    '''
+    def minimizeVariance(self, constraintSet=(0,1)):
+        
+        # Portfolio variance
+        def portfolioVar(weights, covMatrix):
+            return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
+        
+        numAssets = len(self.meanReturns)
+        args = (self.covMatrix)
+        constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+        bound = constraintSet
+        bounds = tuple(bound for asset in range(numAssets))
+        result = sc.optimize.minimize(portfolioVar, numAssets*[1./numAssets], args=args,
+                            method='SLSQP', bounds=bounds, constraints=constraints)
+        result.x = [float('{:.6f}'.format(val)) for val in result.x]
+        result.jac = [float('{:.6f}'.format(val)) for val in result.jac]
+        return result
+
+
+    # Efficient Frontier
+    '''
+    
+    '''
+    def efficientOpt(self, returnTarget, constraintSet=(0,1)):
+
+        # Portfolio returns
+        def portfolioReturns(weights, meanReturns):
+            return np.sum(meanReturns*weights)*self.len_period
+        
+        # Portfolio variance
+        def portfolioVar(weights, covMatrix):
+            return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
+        
+        '''
+        For each returnTarget, we want to optimise the portfolio for min variance.
+        '''
+        numAssets = len(self.meanReturns)
+        args = (self.covMatrix)
+
+        constraints = ({'type':'eq', 'fun': lambda x: portfolioReturns(x, self.meanReturns) - returnTarget},
+                        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+        bound = constraintSet
+        bounds = tuple(bound for asset in range(numAssets))
+        effOpt = sc.optimize.minimize(portfolioVar, [1./numAssets]*numAssets, args=args, method = 'SLSQP', bounds=bounds, constraints=constraints)
+        return effOpt
+
+    def efficientFrontier(self, riskFreeRate=0, constraintSet=(0,1)):
+        # , meanReturns, covMatrix
+        '''
+        Set 13 week treasury bill rate as free-risk ratio,
+        from the same dates as the selected stocks.
+        '''
+        if riskFreeRate == '13-week':
+            riskFreeRate = self.getRiskFreeRate()
+        
+        def portfolioReturns(weights, meanReturns):
+            '''
+            Portfolio returns
+            '''
+            return np.sum(meanReturns*weights)*self.len_period
+
+        def portfolioVar(weights, covMatrix):
+            '''
+            Portfolio variance
+            '''
+            return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
+        
+        def efficientOpt(meanReturns, covMatrix, returnTarget, constraintSet=constraintSet):
+            '''
+            For each returnTarget, we want to optimise the portfolio for min variance.
+            '''
+            numAssets = len(meanReturns)
+            args = (covMatrix)
+
+            constraints = ({'type':'eq', 'fun': lambda x: portfolioReturns(x, meanReturns) - returnTarget},
+                            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+            bound = constraintSet
+            bounds = tuple(bound for asset in range(numAssets))
+            effOpt = sc.optimize.minimize(portfolioVar, [1./numAssets]*numAssets, args=args, method = 'SLSQP', bounds=bounds, constraints=constraints)
+            return effOpt
+        
+        '''
+        Read in mean, cov matrix, and other financial information.
+        Output, Max SR , Min Volatility, efficient frontier.
+        '''
+        # Max Sharpe Ratio Portfolio
+        maxSR_Portfolio = np.array(self.maxSharpeRatio()['x'])
+        maxSR_returns, maxSR_std = portfolioReturns(maxSR_Portfolio, self.meanReturns), portfolioVar(maxSR_Portfolio, self.covMatrix)
+        maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
+        maxSR_allocation = pd.DataFrame(maxSR_Portfolio, index=self.meanReturns.index, columns=['allocation'])
+        maxSR_allocation.allocation = [round(i*100,0) for i in maxSR_allocation.allocation]
+        
+        # Min Volatility Portfolio
+        minVol_Portfolio = np. array(self.minimizeVariance()['x'])
+        minVol_returns, minVol_std = portfolioReturns(minVol_Portfolio, self.meanReturns), portfolioVar(minVol_Portfolio, self.covMatrix)
+        minVol_returns, minVol_std = round(minVol_returns*100,2), round(minVol_std*100,2)
+        minVol_allocation = pd.DataFrame(minVol_Portfolio, index=self.meanReturns.index, columns=['allocation'])
+        minVol_allocation.allocation = [round(i*100,0) for i in minVol_allocation.allocation]
+
+        # Efficient Frontier
+        efficientList = []
+        targetReturns = np.linspace(minVol_returns, maxSR_returns, 20)
+        for target in targetReturns:
+            efficientList.append(efficientOpt(self.meanReturns, self.covMatrix, target)['fun'])
+
+        return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList
+
+    # Visuazing the Efficient Frontier
+
+    def EF_graph(self, meanReturns, covMatrix, riskFreeRate=0, constraintSet=(0,1)):
+        '''
+        Return a graph ploting the min vol, max sr and efficient frontier.
+        '''
+        maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns = calculatedResults(meanReturns, covMatrix, riskFreeRate, constraintSet)
+
+        #Max SR
+        MaxSharpeRatio = go.Scatter(
+            name='Maximium Sharpe Ratio',
+            mode='markers',
+            x=[maxSR_std],
+            y=[maxSR_returns],
+            marker=dict(color='red',size=14,line=dict(width=3, color='black'))
+        )
+
+        #Min Vol
+        MinVol = go.Scatter(
+            name='Mininium Volatility',
+            mode='markers',
+            x=[minVol_std],
+            y=[minVol_returns],
+            marker=dict(color='green',size=14,line=dict(width=3, color='black'))
+        )
+
+        #Efficient Frontier
+        EF_curve = go.Scatter(
+            name='Efficient Frontier',
+            mode='lines',
+            x=[round(ef_std*100, 2) for ef_std in efficientList],
+            y=[round(target*100, 2) for target in targetReturns],
+            line=dict(color='black', width=4, dash='dashdot')
+        )
+
+        data = [MaxSharpeRatio, MinVol, EF_curve]
+
+        layout = go.Layout(
+            title = 'Portfolio Optimisation with the Efficient Frontier',
+            yaxis = dict(title='Annualised Return (%)'),
+            xaxis = dict(title='Annualised Volatility (%)'),
+            showlegend = True,
+            legend = dict(
+                x = 0.75, y = 0, traceorder='normal',
+                bgcolor='#E2E2E2',
+                bordercolor='black',
+                borderwidth=2),
+            width=800,
+            height=600)
+        
+        fig = go.Figure(data=data, layout=layout)
+        return fig.show()
