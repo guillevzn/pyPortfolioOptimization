@@ -8,12 +8,11 @@ class pyPortfolioOptimization:
 
     called_getData = False
 
-    def __init__(self, stocks, weights, start, end):
+    def __init__(self, stocks, start, end):
         yf.pdr_override()
         self.stocks = stocks
         self.start = start
         self.end = end
-        self.weights = weights
 
     
     # Download Risk Free Rate
@@ -152,7 +151,7 @@ class pyPortfolioOptimization:
 
     # Efficient Frontier
     '''
-    
+    Calculate the efficient frontier of allocations.
     '''
     def efficientFrontier(self, riskFreeRate=0, constraintSet=(0,1)):
         # , meanReturns, covMatrix
@@ -223,7 +222,7 @@ class pyPortfolioOptimization:
 
     # Visuazing the Efficient Frontier
     '''
-    
+    Plot the efficient frontier of allocations.
     '''
     def plotEfficientFrontier(self, riskFreeRate=0, constraintSet=(0,1)):
         '''
