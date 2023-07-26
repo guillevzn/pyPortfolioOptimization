@@ -14,7 +14,36 @@ class pyPortfolioOptimization:
         self.start = start
         self.end = end
 
+
+    def _portfolioReturns(self, weights, meanReturns):
+        '''
+        Portfolio returns
+        '''
+        return np.sum(meanReturns*weights)*self.len_period
+
+
+    def _portfolioVar(self, weights, covMatrix):
+        '''
+        Portfolio variance
+        '''
+        return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
     
+    
+    def _efficientOpt(self, meanReturns, covMatrix, returnTarget, constraintSet):
+        '''
+        For each returnTarget, we want to optimise the portfolio for min variance.
+        '''
+        numAssets = len(meanReturns)
+        args = (covMatrix)
+
+        constraints = ({'type':'eq', 'fun': lambda x: self._portfolioReturns(x, meanReturns) - returnTarget},
+                        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+        bound = constraintSet
+        bounds = tuple(bound for asset in range(numAssets))
+        effOpt = sc.optimize.minimize(self._portfolioVar, [1./numAssets]*numAssets, args=args, method = 'SLSQP', bounds=bounds, constraints=constraints)
+        return effOpt
+    
+
     # Download Risk Free Rate
     '''
     Download 13 week us treasury bills rates
@@ -131,10 +160,6 @@ class pyPortfolioOptimization:
     '''
     def minimizeVariance(self, constraintSet=(0,1)):
         
-        # Portfolio variance
-        def portfolioVar(weights, covMatrix):
-            return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
-        
         self.check_getData()
 
         numAssets = len(self.meanReturns)
@@ -142,7 +167,7 @@ class pyPortfolioOptimization:
         constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
         bound = constraintSet
         bounds = tuple(bound for asset in range(numAssets))
-        result = sc.optimize.minimize(portfolioVar, numAssets*[1./numAssets], args=args,
+        result = sc.optimize.minimize(self._portfolioVar, numAssets*[1./numAssets], args=args,
                             method='SLSQP', bounds=bounds, constraints=constraints)
         result.x = [float('{:.6f}'.format(val)) for val in result.x]
         result.jac = [float('{:.6f}'.format(val)) for val in result.jac]
@@ -161,33 +186,6 @@ class pyPortfolioOptimization:
         '''
         if riskFreeRate == '13-week':
             riskFreeRate = self.getRiskFreeRate()
-        
-        def portfolioReturns(weights, meanReturns):
-            '''
-            Portfolio returns
-            '''
-            return np.sum(meanReturns*weights)*self.len_period
-
-        def portfolioVar(weights, covMatrix):
-            '''
-            Portfolio variance
-            '''
-            return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
-        
-        def efficientOpt(meanReturns, covMatrix, returnTarget, constraintSet=constraintSet):
-            '''
-            For each returnTarget, we want to optimise the portfolio for min variance.
-            '''
-            numAssets = len(meanReturns)
-            args = (covMatrix)
-
-            constraints = ({'type':'eq', 'fun': lambda x: portfolioReturns(x, meanReturns) - returnTarget},
-                            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-            bound = constraintSet
-            bounds = tuple(bound for asset in range(numAssets))
-            effOpt = sc.optimize.minimize(portfolioVar, [1./numAssets]*numAssets, args=args, method = 'SLSQP', bounds=bounds, constraints=constraints)
-            return effOpt
-        
 
         self.check_getData()
 
@@ -197,13 +195,13 @@ class pyPortfolioOptimization:
         '''
         # Max Sharpe Ratio Portfolio
         maxSR_Portfolio = np.array(self.maxSharpeRatio()['x'])
-        maxSR_returns, maxSR_std = portfolioReturns(maxSR_Portfolio, self.meanReturns), portfolioVar(maxSR_Portfolio, self.covMatrix)
+        maxSR_returns, maxSR_std = self._portfolioReturns(maxSR_Portfolio, self.meanReturns), self._portfolioVar(maxSR_Portfolio, self.covMatrix)
         maxSR_allocation = pd.DataFrame(maxSR_Portfolio, index=self.meanReturns.index, columns=['allocation'])
         maxSR_allocation.allocation = [round(i*100,0) for i in maxSR_allocation.allocation]
         
         # Min Volatility Portfolio
         minVol_Portfolio = np. array(self.minimizeVariance()['x'])
-        minVol_returns, minVol_std = portfolioReturns(minVol_Portfolio, self.meanReturns), portfolioVar(minVol_Portfolio, self.covMatrix)
+        minVol_returns, minVol_std = self._portfolioReturns(minVol_Portfolio, self.meanReturns), self._portfolioVar(minVol_Portfolio, self.covMatrix)
         minVol_allocation = pd.DataFrame(minVol_Portfolio, index=self.meanReturns.index, columns=['allocation'])
         minVol_allocation.allocation = [round(i*100,0) for i in minVol_allocation.allocation]
 
@@ -211,7 +209,7 @@ class pyPortfolioOptimization:
         efficientList = []
         targetReturns = np.linspace(minVol_returns, maxSR_returns, 20)
         for target in targetReturns:
-            efficientList.append(efficientOpt(self.meanReturns, self.covMatrix, target)['fun'])
+            efficientList.append(self._efficientOpt(self.meanReturns, self.covMatrix, target, constraintSet)['fun'])
 
 
         maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
