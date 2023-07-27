@@ -28,7 +28,7 @@ class pyPortfolioOptimization:
         '''
         return np.sqrt(np.dot(weights.T,np.dot(covMatrix, weights)))*np.sqrt(self.len_period)
     
-    
+
     def _efficientOpt(self, meanReturns, covMatrix, returnTarget, constraintSet):
         '''
         For each returnTarget, we want to optimise the portfolio for min variance.
@@ -178,7 +178,7 @@ class pyPortfolioOptimization:
     '''
     Calculate the efficient frontier of allocations.
     '''
-    def efficientFrontier(self, riskFreeRate=0, constraintSet=(0,1)):
+    def efficientFrontier(self, riskFreeRate=0, constraintSet=(0,1), plot=False):
         # , meanReturns, covMatrix
         '''
         Set 13 week treasury bill rate as free-risk ratio,
@@ -215,7 +215,12 @@ class pyPortfolioOptimization:
         maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
         minVol_returns, minVol_std = round(minVol_returns*100,2), round(minVol_std*100,2)
 
-        return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
+        if plot == True:
+            return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
+        
+        else:
+            return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
+            # code
 
 
     # Visuazing the Efficient Frontier
@@ -234,7 +239,7 @@ class pyPortfolioOptimization:
             riskFreeRate = self.getRiskFreeRate()
         
 
-        maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns = self.efficientFrontier(riskFreeRate, constraintSet)
+        maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns = self.efficientFrontier(riskFreeRate, constraintSet, True)
 
         #Max SR
         MaxSharpeRatio = go.Scatter(
