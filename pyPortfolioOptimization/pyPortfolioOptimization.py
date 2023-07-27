@@ -206,10 +206,17 @@ class pyPortfolioOptimization:
         minVol_allocation.allocation = [round(i*100,0) for i in minVol_allocation.allocation]
 
         # Efficient Frontier
+        efficientAllocation = []
         efficientList = []
         targetReturns = np.linspace(minVol_returns, maxSR_returns, 20)
+        # Value of minimization problem
         for target in targetReturns:
             efficientList.append(self._efficientOpt(self.meanReturns, self.covMatrix, target, constraintSet)['fun'])
+        # Value of allocations
+        for target in targetReturns:
+            x = self._efficientOpt(self.meanReturns, self.covMatrix, target, constraintSet)['x']
+            x = [float('{:.6f}'.format(val)) for val in x]
+            efficientAllocation.append(x)
 
 
         maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
@@ -219,8 +226,9 @@ class pyPortfolioOptimization:
             return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
         
         else:
-            return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
-            # code
+            df = pd.DataFrame([efficientList, targetReturns, efficientAllocation]).T
+            df.columns = ['Volatility', 'Return', 'Allocations']
+            return df
 
 
     # Visuazing the Efficient Frontier
