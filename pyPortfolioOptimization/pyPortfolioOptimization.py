@@ -7,13 +7,12 @@ import plotly.graph_objs as go
 
 class pyPortfolioOptimization:
 
-    called_getData = False
-
     def __init__(self, stocks, start, end):
         yf.pdr_override()
         self.stocks = stocks
         self.start = start
         self.end = end
+        self.called_getData = False
 
 
     def _portfolioReturns(self, weights, meanReturns):
@@ -66,7 +65,7 @@ class pyPortfolioOptimization:
     Check if getData has already been executed or not.
     '''
     def check_getData(self):
-        if pyPortfolioOptimization.called_getData == True:
+        if self.called_getData == True:
             pass
         else:
             meanReturns, covMatrix = self.getData()
@@ -81,19 +80,22 @@ class pyPortfolioOptimization:
     It stores returned data.
     '''
     def getData(self):
-        stockData = yf.download(self.stocks, start=self.start, end=self.end)
-        self.stockData = stockData
-        self.len_period = len(stockData)
-        stockData = stockData['Close']
+        if self.called_getData == True:
+            pass
+        else:
+            stockData = yf.download(self.stocks, start=self.start, end=self.end)
+            self.stockData = stockData
+            self.len_period = len(stockData)
+            stockData = stockData['Close']
 
-        returns = stockData.pct_change()
-        meanReturns = returns.mean()
-        covMatrix = returns.cov()
+            returns = stockData.pct_change()
+            meanReturns = returns.mean()
+            covMatrix = returns.cov()
 
-        self.meanReturns = meanReturns
-        self.covMatrix = covMatrix
+            self.meanReturns = meanReturns
+            self.covMatrix = covMatrix
 
-        pyPortfolioOptimization.called_getData = True
+            self.called_getData = True
 
         return meanReturns, covMatrix
 
@@ -102,12 +104,13 @@ class pyPortfolioOptimization:
     '''
     Plot downloaded data.
     '''
-    def plotData(self):
+    def plotData(self, figsize=[None, None]):
         self.check_getData()
         
         pd.options.plotting.backend = "plotly"
 
-        fig = self.stockData['Close'].plot()
+        fig = go.Figure(px.line(self.stockData['Close'],
+                                custom_data=['variable']))
 
         fig.update_layout(
             title='Close values for stocks',
@@ -115,14 +118,20 @@ class pyPortfolioOptimization:
             xaxis = dict(title='Date (days)'),
             showlegend = True,
             legend = dict(
-                x = 1.05, y = 0, traceorder='normal',
+                x = 1.005, y = 0, traceorder='normal',
                 bgcolor='#E2E2E2',
                 bordercolor='black',
                 borderwidth=2),
-            width=1000,
-            height=600
+            legend_title_text = '<b>Tickers</b>',
+            width=figsize[0],
+            height=figsize[1]
         )
 
+        fig.update_traces(hovertemplate=('Ticker: %{customdata[0]}<br>' +
+                                         'Date: %{x}<br>' +
+                                         'Price: %{y:.2f}' +
+                                         '<extra></extra>'))
+        
         return fig.show()
 
 
@@ -198,7 +207,7 @@ class pyPortfolioOptimization:
     '''
     Calculate the efficient frontier of allocations.
     '''
-    def efficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1)):
+    def efficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1), separated_allocations=False):
         # , meanReturns, covMatrix
         '''
         Set 13 week treasury bill rate as free-risk ratio,
@@ -245,14 +254,20 @@ class pyPortfolioOptimization:
 
         df = pd.DataFrame([efficientList, targetReturns, efficientAllocation]).T
         df.columns = ['Volatility', 'Return', 'Allocations']
-        return df
+
+        if separated_allocations==True:
+            expanded_allocations = df.apply(lambda row: pd.Series(row['Allocations'], index=self.stockData['Close'].columns.to_list()), axis=1)
+            result_df = pd.concat([df[['Volatility', 'Return']], expanded_allocations], axis=1)
+            return result_df
+        else:
+            return df
 
 
     # Visuazing the Efficient Frontier
     '''
     Plot the efficient frontier of allocations.
     '''
-    def plotEfficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1)):
+    def plotEfficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1), figsize=[None, None]):
         '''
         Return a graph ploting the min vol, max sr and efficient frontier.
         '''
@@ -264,7 +279,7 @@ class pyPortfolioOptimization:
             riskFreeRate = self.getRiskFreeRate()
         
 
-        df = self.efficientFrontier(iterations, riskFreeRate, constraintSet)
+        df = self.efficientFrontier(iterations, riskFreeRate, constraintSet, separated_allocations=True)
 
         #Efficient Frontier
         EF_curve = go.Scatter(
@@ -301,21 +316,28 @@ class pyPortfolioOptimization:
             xaxis = dict(title='Annualised volatility (%)'),
             showlegend = True,
             legend = dict(
-                x = 0.75, y = 0, traceorder='normal',
+                x = 1.005, y = 0, traceorder='normal',
                 bgcolor='#E2E2E2',
                 bordercolor='black',
                 borderwidth=2),
-            width=800,
-            height=600)
-        
+            width=figsize[0],
+            height=figsize[1])
+
         fig = go.Figure(data=data, layout=layout)
-        customdata=np.stack((df['Volatility'].apply(lambda x: round(x * 100, 2)),
-                             df['Return'].apply(lambda x: round(x * 100, 2)),
-                             df['Allocations'].apply(lambda x: [round(val*100, 2) for val in x])),
+
+
+        df = df.apply(lambda x: [f'{round(val * 100, 2)}%' for val in x])
+
+        customdata=np.stack(([df[column].values for column in df]),
                              axis=1)
-        fig.update_traces(customdata=customdata, hovertemplate=('Volatility: %{customdata[0]}<br>' + 
-                                                                'Return: %{customdata[1]}<br>' + 
-                                                                'Allocations: %{customdata[2]} <br>' + 
+        
+        # Create the 'Allocations' part of the hovertemplate dynamically for each column
+        allocation_template = '<br>'.join([f'{col}: %{{customdata[{i+2}]}}' for i, col in enumerate(df.columns[2:])])
+
+        fig.update_traces(customdata=customdata, hovertemplate=('Volatility: %{customdata[0]}<br>' +
+                                                                'Return: %{customdata[1]}<br>' +
+                                                                '<br>' +
+                                                                f'Allocations<br>{allocation_template}<br>' +
                                                                 '<extra></extra>'))
         
         return fig.show()
