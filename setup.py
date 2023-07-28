@@ -18,7 +18,7 @@ setup(
     author_email="<guillevzn@gmail.com>",
     description=DESCRIPTION,
     packages=find_packages(),
-    install_requires=['numpy', 'pandas', 'scipy', 'yfinance'],
+    install_requires=['numpy', 'pandas', 'scipy', 'yfinance', 'plotly'],
     keywords=['python', 'modern', 'portfolio', 'optimization', 'efficient', 'frontier'],
     classifiers=[
         "Development Status :: 1 - Planning",
