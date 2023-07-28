@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import scipy as sc
 import yfinance as yf
-import plotly.graph_objects as go
+import plotly.express as px
+import plotly.graph_objs as go
 
 class pyPortfolioOptimization:
 
@@ -103,7 +104,26 @@ class pyPortfolioOptimization:
     '''
     def plotData(self):
         self.check_getData()
-        return self.stockData['Close'].plot()
+        
+        pd.options.plotting.backend = "plotly"
+
+        fig = self.stockData['Close'].plot()
+
+        fig.update_layout(
+            title='Close values for stocks',
+            yaxis = dict(title='Daily value'),
+            xaxis = dict(title='Date (days)'),
+            showlegend = True,
+            legend = dict(
+                x = 1.05, y = 0, traceorder='normal',
+                bgcolor='#E2E2E2',
+                bordercolor='black',
+                borderwidth=2),
+            width=1000,
+            height=600
+        )
+
+        return fig.show()
 
 
     # Maximize for the Sharpe Ratio
@@ -178,7 +198,7 @@ class pyPortfolioOptimization:
     '''
     Calculate the efficient frontier of allocations.
     '''
-    def efficientFrontier(self, riskFreeRate=0, constraintSet=(0,1), plot=False):
+    def efficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1)):
         # , meanReturns, covMatrix
         '''
         Set 13 week treasury bill rate as free-risk ratio,
@@ -208,7 +228,7 @@ class pyPortfolioOptimization:
         # Efficient Frontier
         efficientAllocation = []
         efficientList = []
-        targetReturns = np.linspace(minVol_returns, maxSR_returns, 20)
+        targetReturns = np.linspace(minVol_returns, maxSR_returns, iterations)
         # Value of minimization problem
         for target in targetReturns:
             efficientList.append(self._efficientOpt(self.meanReturns, self.covMatrix, target, constraintSet)['fun'])
@@ -222,20 +242,17 @@ class pyPortfolioOptimization:
         maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
         minVol_returns, minVol_std = round(minVol_returns*100,2), round(minVol_std*100,2)
 
-        if plot == True:
-            return maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns
-        
-        else:
-            df = pd.DataFrame([efficientList, targetReturns, efficientAllocation]).T
-            df.columns = ['Volatility', 'Return', 'Allocations']
-            return df
+
+        df = pd.DataFrame([efficientList, targetReturns, efficientAllocation]).T
+        df.columns = ['Volatility', 'Return', 'Allocations']
+        return df
 
 
     # Visuazing the Efficient Frontier
     '''
     Plot the efficient frontier of allocations.
     '''
-    def plotEfficientFrontier(self, riskFreeRate=0, constraintSet=(0,1)):
+    def plotEfficientFrontier(self, iterations, riskFreeRate=0, constraintSet=(0,1)):
         '''
         Return a graph ploting the min vol, max sr and efficient frontier.
         '''
@@ -247,41 +264,41 @@ class pyPortfolioOptimization:
             riskFreeRate = self.getRiskFreeRate()
         
 
-        maxSR_returns, maxSR_std, maxSR_allocation, minVol_returns, minVol_std, minVol_allocation, efficientList, targetReturns = self.efficientFrontier(riskFreeRate, constraintSet, True)
+        df = self.efficientFrontier(iterations, riskFreeRate, constraintSet)
+
+        #Efficient Frontier
+        EF_curve = go.Scatter(
+            name='Efficient Frontier',
+            mode='lines',
+            x=[round(ef_std*100, 2) for ef_std in df['Volatility']],
+            y=[round(target*100, 2) for target in df['Return']],
+            line=dict(color='black', width=3, dash='dashdot')
+        )
 
         #Max SR
         MaxSharpeRatio = go.Scatter(
             name='Maximium Sharpe Ratio',
             mode='markers',
-            x=[maxSR_std],
-            y=[maxSR_returns],
-            marker=dict(color='red',size=14,line=dict(width=3, color='black'))
+            x=[round(df['Volatility'].iat[-1]*100,2)],
+            y=[round(df['Return'].iat[-1]*100,2)],
+            marker=dict(color='red',size=14,line=dict(width=2, color='black'))
         )
 
         #Min Vol
         MinVol = go.Scatter(
             name='Mininium Volatility',
             mode='markers',
-            x=[minVol_std],
-            y=[minVol_returns],
-            marker=dict(color='green',size=14,line=dict(width=3, color='black'))
+            x=[round(df['Volatility'].iat[0]*100,2)],
+            y=[round(df['Return'].iat[0]*100,2)],
+            marker=dict(color='green',size=14,line=dict(width=2, color='black'))
         )
 
-        #Efficient Frontier
-        EF_curve = go.Scatter(
-            name='Efficient Frontier',
-            mode='lines',
-            x=[round(ef_std*100, 2) for ef_std in efficientList],
-            y=[round(target*100, 2) for target in targetReturns],
-            line=dict(color='black', width=4, dash='dashdot')
-        )
-
-        data = [MaxSharpeRatio, MinVol, EF_curve]
+        data = [EF_curve, MaxSharpeRatio, MinVol]
 
         layout = go.Layout(
             title = 'Portfolio Optimisation with the Efficient Frontier',
-            yaxis = dict(title='Annualised Return (%)'),
-            xaxis = dict(title='Annualised Volatility (%)'),
+            yaxis = dict(title='Annualised return (%)'),
+            xaxis = dict(title='Annualised volatility (%)'),
             showlegend = True,
             legend = dict(
                 x = 0.75, y = 0, traceorder='normal',
@@ -292,4 +309,13 @@ class pyPortfolioOptimization:
             height=600)
         
         fig = go.Figure(data=data, layout=layout)
+        customdata=np.stack((df['Volatility'].apply(lambda x: round(x * 100, 2)),
+                             df['Return'].apply(lambda x: round(x * 100, 2)),
+                             df['Allocations'].apply(lambda x: [round(val*100, 2) for val in x])),
+                             axis=1)
+        fig.update_traces(customdata=customdata, hovertemplate=('Volatility: %{customdata[0]}<br>' + 
+                                                                'Return: %{customdata[1]}<br>' + 
+                                                                'Allocations: %{customdata[2]} <br>' + 
+                                                                '<extra></extra>'))
+        
         return fig.show()
