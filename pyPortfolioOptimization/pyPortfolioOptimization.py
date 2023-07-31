@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 import scipy as sc
 import yfinance as yf
+from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objs as go
+import random
 
 class pyPortfolioOptimization:
 
@@ -277,65 +279,140 @@ class pyPortfolioOptimization:
         '''
         if riskFreeRate == '13-week':
             riskFreeRate = self.getRiskFreeRate()
-        
+
 
         df = self.efficientFrontier(iterations, riskFreeRate, constraintSet, separated_allocations=True)
 
-        #Efficient Frontier
-        EF_curve = go.Scatter(
-            name='Efficient Frontier',
-            mode='lines',
-            x=[round(ef_std*100, 2) for ef_std in df['Volatility']],
-            y=[round(target*100, 2) for target in df['Return']],
-            line=dict(color='black', width=3, dash='dashdot')
-        )
-
-        #Max SR
-        MaxSharpeRatio = go.Scatter(
-            name='Maximium Sharpe Ratio',
-            mode='markers',
-            x=[round(df['Volatility'].iat[-1]*100,2)],
-            y=[round(df['Return'].iat[-1]*100,2)],
-            marker=dict(color='red',size=14,line=dict(width=2, color='black'))
-        )
-
-        #Min Vol
-        MinVol = go.Scatter(
-            name='Mininium Volatility',
-            mode='markers',
-            x=[round(df['Volatility'].iat[0]*100,2)],
-            y=[round(df['Return'].iat[0]*100,2)],
-            marker=dict(color='green',size=14,line=dict(width=2, color='black'))
-        )
-
-        data = [EF_curve, MaxSharpeRatio, MinVol]
-
-        layout = go.Layout(
-            title = 'Portfolio Optimisation with the Efficient Frontier',
-            yaxis = dict(title='Annualised return (%)'),
-            xaxis = dict(title='Annualised volatility (%)'),
-            showlegend = True,
-            legend = dict(
-                x = 1.005, y = 0, traceorder='normal',
-                bgcolor='#E2E2E2',
-                bordercolor='black',
-                borderwidth=2),
-            width=figsize[0],
-            height=figsize[1])
-
-        fig = go.Figure(data=data, layout=layout)
-
-
-        df = df.apply(lambda x: [f'{round(val * 100, 2)}%' for val in x])
+        df = df.apply(lambda x: [round(val * 100, 2) for val in x])
 
         customdata=np.stack(([df[column].values for column in df]),
                              axis=1)
         
         # Create the 'Allocations' part of the hovertemplate dynamically for each column
-        allocation_template = '<br>'.join([f'{col}: %{{customdata[{i+2}]}}' for i, col in enumerate(df.columns[2:])])
+        allocation_template = '<br>'.join([f'{col}: %{{customdata[{i+2}]}}%' for i, col in enumerate(df.columns[2:])])
 
-        fig.update_traces(customdata=customdata, hovertemplate=('Volatility: %{customdata[0]}<br>' +
-                                                                'Return: %{customdata[1]}<br>' +
+
+        # Generate a list of random hexadecimal color codes
+        color_dict = {col: '#' + ''.join([random.choice('0123456789ABCDEF') for _ in range(6)]) for col in df.columns[2:]}
+
+
+        fig = make_subplots(rows=2,
+                            cols=2,
+                            specs=[[{"colspan": 2}, None], [{}, {}]],
+                            subplot_titles=('Efficient Frontier', 'Evolution of Allocations: Volatility', 'Evolution of Allocations: Return')
+        )
+
+        #Efficient Frontier
+        fig.add_trace(go.Scatter(
+            x=df['Volatility'],
+            y=df['Return'],
+            name='Efficient Frontier',
+            mode='lines+markers',
+            marker=dict(color='black',size=5),
+            showlegend=False),
+            row=1, col=1)
+        
+        #Evolution of Allocations Volatility
+        for col in df.columns[2:]:
+            fig.add_trace(go.Scatter(x=df['Volatility'], y=df[col].values,
+                                     name = col,
+                                     mode = 'lines',
+                                     legendgroup=col,
+                                     showlegend=True,
+                                     marker=dict(color=color_dict[col])),
+                                     row=2, col=1)
+        
+        #Evolution of Allocations Return
+        for col in df.columns[2:]:
+            fig.add_trace(go.Scatter(x=df['Return'], y=df[col].values,
+                                     name = col,
+                                     mode = 'lines',
+                                     legendgroup=col,
+                                     showlegend=False,
+                                     marker=dict(color=color_dict[col])),
+                                     row=2, col=2)
+        
+        # Minimum Volatility
+        fig.add_annotation(showarrow=False,
+                   arrowhead=0,
+                   align = 'left',
+                   x=df['Volatility'].min(),
+                   y=df['Return'].min(),
+                   text="Mininium Volatility",
+                   opacity=0.7,
+                   yshift=-15)
+        
+        # Maximum Shaper Ratio
+        fig.add_annotation(showarrow=False,
+                   arrowhead=0,
+                   align = 'right',
+                   x=df['Volatility'].max(),
+                   y=df['Return'].max(),
+                   text="Maximium Sharpe Ratio",
+                   opacity=0.7,
+                   yshift=15)
+        
+        # Subplot 1
+        fig.update_xaxes(
+            title_text='Return (%)',
+            row=1,
+            col=1
+        )
+
+        fig.update_yaxes(
+            title_text='Volatility (%)',
+            row=1,
+            col=1
+        )
+
+        # Subplot 2
+        fig.update_xaxes(
+            title_text='Volatility (%)',
+            showspikes=True,
+            spikecolor="green",
+            spikesnap="cursor",
+            spikemode="across",
+            spikedash="solid",
+            row=2,
+            col=1
+        )
+
+        fig.update_yaxes(
+            title_text='Allocation (%)',
+            showspikes=True,
+            spikecolor="green",
+            spikesnap="cursor",
+            spikemode="across",
+            spikedash="solid",
+            row=2,
+            col=1
+        )
+        
+        # Subplot 3
+        fig.update_xaxes(
+            title_text='Return (%)',
+            showspikes=True,
+            spikecolor="green",
+            spikesnap="cursor",
+            spikemode="across",
+            spikedash="solid",
+            row=2,
+            col=2
+        )
+
+        fig.update_yaxes(
+            title_text='Allocation (%)',
+            showspikes=True,
+            spikecolor="green",
+            spikesnap="cursor",
+            spikemode="across",
+            spikedash="solid",
+            row=2,
+            col=2
+        )
+
+        fig.update_traces(customdata=customdata, hovertemplate=('Return: %{x}%<br>' +
+                                                                'Volatility: %{y}%<br>' +
                                                                 '<br>' +
                                                                 f'Allocations<br>{allocation_template}<br>' +
                                                                 '<extra></extra>'))
