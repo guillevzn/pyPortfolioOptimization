@@ -249,6 +249,8 @@ class pyPortfolioOptimization:
             x = [float('{:.6f}'.format(val)) for val in x]
             efficientAllocation.append(x)
 
+        '''
+        '''
 
         maxSR_returns, maxSR_std = round(maxSR_returns*100,2), round(maxSR_std*100,2)
         minVol_returns, minVol_std = round(minVol_returns*100,2), round(minVol_std*100,2)
