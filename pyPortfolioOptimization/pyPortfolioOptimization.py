@@ -312,7 +312,8 @@ class pyPortfolioOptimization:
             mode='lines+markers',
             marker=dict(color='black',size=5),
             showlegend=False),
-            row=1, col=1)
+            row=1, col=1
+        )
         
         #Evolution of Allocations Volatility
         for col in df.columns[2:]:
@@ -332,7 +333,8 @@ class pyPortfolioOptimization:
                                      legendgroup=col,
                                      showlegend=False,
                                      marker=dict(color=color_dict[col])),
-                                     row=2, col=2)
+                                     row=2, col=2
+        )
         
         # Minimum Volatility
         fig.add_annotation(showarrow=False,
@@ -342,7 +344,8 @@ class pyPortfolioOptimization:
                    y=df['Return'].min(),
                    text="Mininium Volatility",
                    opacity=0.7,
-                   yshift=-15)
+                   yshift=-15
+        )
         
         # Maximum Shaper Ratio
         fig.add_annotation(showarrow=False,
@@ -352,7 +355,8 @@ class pyPortfolioOptimization:
                    y=df['Return'].max(),
                    text="Maximium Sharpe Ratio",
                    opacity=0.7,
-                   yshift=15)
+                   yshift=15
+        )
         
         # Subplot 1
         fig.update_xaxes(
@@ -417,6 +421,7 @@ class pyPortfolioOptimization:
                                                                 'Volatility: %{y}%<br>' +
                                                                 '<br>' +
                                                                 f'Allocations<br>{allocation_template}<br>' +
-                                                                '<extra></extra>'))
+                                                                '<extra></extra>')
+        )
         
         return fig.show()
